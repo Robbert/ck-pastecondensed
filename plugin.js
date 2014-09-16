@@ -27,7 +27,7 @@ CKEDITOR.plugins.add('ck-pastecondensed', {
 var DEBUG = false;
 
 /** @const {boolean} */
-var LOG = true;
+var LOG = false;
 
 // The `List`, `XML`, `DOM` and `StringPattern` are partial copies of modules from the repository of Robbert Broersma
 
@@ -191,22 +191,6 @@ DOM.getAncestors = function (contextNode)
 DOM.unwrapBefore = function (node)
 {
     return DOM.unwrapAdjacent(node, -1);
-
-    var parent = node.parentNode;
-    if (parent && parent.parentNode)
-    {
-        parent.parentNode.insertBefore(node, parent);
-
-        var prev = node.previousSibling;
-        if (DOM.isText(prev))
-        {
-            DOM.removeNode(node);
-            prev.appendData(node.nodeValue);
-        }
-
-        return true;
-    }
-    return false;
 };
 
 /**
@@ -216,21 +200,6 @@ DOM.unwrapBefore = function (node)
 DOM.unwrapAfter = function (node)
 {
     return DOM.unwrapAdjacent(node, 1);
-
-    var parent = node.parentNode;
-    if (parent && parent.parentNode)
-    {
-        parent.parentNode.insertBefore(node, parent.nextSibling);
-
-        var next = node.nextSibling;
-        if (DOM.isText(next))
-        {
-            DOM.removeNode(node);
-            next.insertData(0, node.nodeValue);
-        }
-        return true;
-    }
-    return false;
 };
 
 /**
@@ -391,8 +360,6 @@ XML.getFollowingNode = function (node)
     return following;
 };
 
-
-
 /**
  * @param {Node} node
  * @return {boolean}
@@ -409,7 +376,7 @@ XML.isParentNode = function isParentNode(node)
 /**
  * @param {Node} node
  * @param {function(Node)=} filter
- * @return {string}
+ * @return {Array.<Node>}
  */
 XML.getDescendants = function getDescendants(node, filter)
 {
@@ -430,6 +397,11 @@ XML.getDescendants = function getDescendants(node, filter)
     return descendants;
 };
 
+/**
+ * @param {Node} node
+ * @param {function(Node)=} filter
+ * @return {Array.<Node>}
+ */
 XML.getDescendantsOrSelf = function getDescendantsOrSelf(node, filter)
 {
     var list = XML.getDescendants(node, filter);
@@ -509,10 +481,6 @@ PasteCondensed.isPreformattedCharacterData = function (node)
     return DOM.getAncestors(node).some(PasteCondensed.isPreformatted);
 };
 
-PasteCondensed.whitespaceMap = {
-    "br": "\n"
-};
-
 PasteCondensed.isWhitespaceElement = function (namespaceURI, name)
 {
     if (namespaceURI === XML.XMLNS_XHTML)
@@ -523,6 +491,11 @@ PasteCondensed.isWhitespaceElement = function (namespaceURI, name)
     return false;
 };
 
+/**
+ * @param {?string} namespaceURI
+ * @param {string} name
+ * @return {boolean}
+ */
 PasteCondensed.isParagraphSplitter = function (namespaceURI, name)
 {
     if (namespaceURI === XML.XMLNS_XHTML)
@@ -553,6 +526,11 @@ PasteCondensed.isNonPhrasingContent = function (namespaceURI, name)
     return false;
 };
 
+/**
+ * @param {?string} namespaceURI
+ * @param {string} name
+ * @return {boolean}
+ */
 PasteCondensed.isBlockContainer = function (namespaceURI, localName)
 {
     if (namespaceURI === XML.XMLNS_XHTML)
@@ -677,44 +655,6 @@ PasteCondensed.isEmptyString = function (str)
     return /^[\s\u00A0]*$/.test(str);
 };
 
-
-
-
-
-
-/** ...</p>[<p>^bla</p>]<p>... */
-function rangeTextContainer()
-{
-
-}
-
-/** <p>[bla^ <i>bla</i> bla]</p> */
-function rangeText()
-{
-    // select text nodes
-    if (node.nodeType === 3)
-    {
-
-    }
-}
-
-/** <p>[bla^ <i>bla</i> bla]<br>bla bla</p> */
-function rangeParagraph()
-{
-    // select text nodes
-    if (node.nodeType === 3)
-    {
-        //
-    }
-
-}
-
-/** <div>[<img>]</p> */
-function rangeUnselectableContainer()
-{
-    //
-}
-
 /**
  * True for:
  *   hello^
@@ -726,31 +666,25 @@ function rangeUnselectableContainer()
  * Also true for:
  *   Hello^<p>World</p> (mixed content)
  */
-function atEndOfPhrasing(node)
+PasteCondensed.atEndOfPhrasing = function atEndOfPhrasing(node)
 {
-    return atBoundaryOfPhrasing(node, true);
+    return PasteCondensed.atBoundaryOfPhrasing(node, true);
+};
+
+/**
+ * @param {string} axis Either "preceding" or "following"
+ */
+PasteCondensed.atBoundaryOfPhrasing = function atBoundaryOfPhrasing(node, forward)
+{
+    var atBoundary = true;
+
+    var near = node;
 
     // true for:
     // - text node that is last child of block level element -- that is: text node that has no following nodes
     // - text node of which the following node has a previous sibling that is a block-level container of the text node
     // - text node that has no parent
     // - text node that has no following node
-    if (!XML.isParentNode(node) && !node.parentNode)
-    {
-        if (!node.parentNode)
-            return true;
-    }
-    return false;
-}
-
-/**
- * @param {string} axis Either "preceding" or "following"
- */
-function atBoundaryOfPhrasing(node, forward)
-{
-    var atBoundary = true;
-
-    var near = node;
 
     while (near && atBoundary)
     {
@@ -776,8 +710,7 @@ function atBoundaryOfPhrasing(node, forward)
     }
 
     return atBoundary;
-
-}
+};
 
 /**
  * True for:
@@ -787,34 +720,10 @@ function atBoundaryOfPhrasing(node, forward)
  * Also true for:
  *   <p>Hello</p>^World<p>Bye</p>
  */
-function atStartOfPhrasing(node)
+PasteCondensed.atStartOfPhrasing = function atStartOfPhrasing(node)
 {
-    return atBoundaryOfPhrasing(node, false);
-
-    var atStart = true;
-
-    while (near && atStart)
-    {
-        var near = XML.getPrecedingNode(node);
-/*
-        if (near.nodeType === DOM.COMMENT_NODE || near.nodeType === DOM.PROCESSING_INSTRUCTION_NODE)
-            continue;
-
-        if (PasteCondensed.isInlineContainerElement(near))
-            continue;
-
-        if (DOM.isText(near) && PasteCondensed.isEmptyString(near.nodeValue))
-            continue;
-*/
-
-        if (isEmptyPhrasingNode(near))
-            continue;
-
-        atStart = false;
-    
-    }
-    return atStart;
-}
+    return PasteCondensed.atBoundaryOfPhrasing(node, false);
+};
 
 function isEmptyPhrasingNode(near)
 {
@@ -966,21 +875,25 @@ PasteCondensed.fixEmptyPhraseContainers = function fixEmptyPhraseContainers(node
 
 
 
+/**
+ * Convert:
+ * <p>Click<a href="#"> here</a></p>
+ * to:
+ * <p>Click <a href="#">here</a></p>
+ * 
+ * @param {Node} node
+ */
 PasteCondensed.splitWhitespace = function splitWhitespace(node)
 {
     var textNodes = XML.getDescendantsOrSelf(node, DOM.isText);
 
-    // Convert:
-    // <p>Click<a href="#"> here</a>
-    // to:
-    // <p>Click <a href="#">here</a>
     textNodes.forEach(function (node) {
 
         if (PasteCondensed.isPreformattedCharacterData(node))
             return;
-// debugger
+
         var value = node.nodeValue;
-if (DEBUG) console.log("Split off!?", ">"+value+"<")
+        if (DEBUG) console.log("Split off!?", ">"+value+"<")
 
         // First split of trailing whitespace, after that: split off leading whitespace
         var end = StringPattern.indexOf(value, /[\s\u00A0]+$/);
@@ -988,14 +901,12 @@ if (DEBUG) console.log("Split off!?", ">"+value+"<")
 
         if (PasteCondensed.isInlineContainerElement(node.parentNode))
         {
-// console.log(index)
             if (end > 0)
             {
                 node.splitText(end);
                 if (LOG) console.log("Split off end")
             }
 
-// console.log(index)
             if (start > 0)
             {
                 node.splitText(start);
@@ -1004,16 +915,16 @@ if (DEBUG) console.log("Split off!?", ">"+value+"<")
         }
         else
         {
-            if (end > 0 && atEndOfPhrasing(node))
+            if (end > 0 && PasteCondensed.atEndOfPhrasing(node))
                 node.deleteData(end, value.length - end);
 
-            if (start > 0 && atStartOfPhrasing(node))
+            if (start > 0 && PasteCondensed.atStartOfPhrasing(node))
                 node.deleteData(0, start);
         }
     });
 }
 
-function isEmptyBlock(node)
+PasteCondensed.isEmptyBlock = function isEmptyBlock(node)
 {
     var isEmptyBlock = PasteCondensed.isBlockPhraseContainer(node.namespaceURI, node.localName);
 
@@ -1036,7 +947,7 @@ PasteCondensed.fixAdjacentEmptyBlocks = function fixAdjacentEmptyBlocks(node)
     var els = XML.getElements(node);
 
     els.forEach(function (el) {
-        if (isEmptyBlock(el))
+        if (PasteCondensed.isEmptyBlock(el))
         {
             var node = el;
             while ((node = node.nextSibling))
@@ -1047,7 +958,7 @@ PasteCondensed.fixAdjacentEmptyBlocks = function fixAdjacentEmptyBlocks(node)
                 if (node.nodeType === DOM.TEXT_NODE && XML.isWhitespace(node.nodeValue))
                     continue;
 
-                if (!isEmptyBlock(node))
+                if (!PasteCondensed.isEmptyBlock(node))
                     break;
 
                 if (LOG) console.log("Remove adjacent empty block", node);
@@ -1076,11 +987,11 @@ PasteCondensed.fixParagraphSplitters = function fixParagraphSplitters(node)
     
         if (PasteCondensed.isParagraphSplitter(XML.XMLNS_XHTML, node.localName))
         {
-            var atStart = atStartOfPhrasing(node),
-                atEnd = atEndOfPhrasing(node);
-            console.log("Paragraph splitter", node, atStart, atEnd);
+            var atStart = PasteCondensed.atStartOfPhrasing(node),
+                atEnd = PasteCondensed.atEndOfPhrasing(node);
+            if (DEBUG) console.log("Paragraph splitter", node, atStart, atEnd);
 
-            if (atStartOfPhrasing(node) || atEndOfPhrasing(node))
+            if (PasteCondensed.atStartOfPhrasing(node) || PasteCondensed.atEndOfPhrasing(node))
             // if (atStart || atEnd)
             {
                 if (LOG) console.log("Remove paragraph splitter:",node)
@@ -1142,6 +1053,6 @@ function test(html)
     console.log("=====");
 }
 
-test(tests[1]);
+// test(tests[1]);
 
 })();
