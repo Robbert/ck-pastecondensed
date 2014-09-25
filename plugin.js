@@ -975,6 +975,23 @@ PasteCondensed.fixAdjacentEmptyBlocks = function fixAdjacentEmptyBlocks(node)
 }
 
 /**
+ * The most rigorous approach against white space: remove all empty block elements.
+ * 
+ * @param {Node} node
+ */
+PasteCondensed.removeEmptyBlocks = function removeEmptyBlocks(node)
+{
+    var els = XML.getElements(node);
+
+    els.forEach(function (el) {
+        if (PasteCondensed.isEmptyBlock(el))
+        {
+            DOM.removeNode(el);
+        }
+    });
+};
+
+/**
  * Remove trailing <br> elements
  * 
  * @param {Node} node
@@ -1018,8 +1035,18 @@ PasteCondensed.condenseNode = function condenseNode(node)
     if (DEBUG) console.log("Fixing empty phrase containers")
     PasteCondensed.fixEmptyPhraseContainers(node);
 
-    if (DEBUG) console.log("Fixing adjacent empty blocks")
-    PasteCondensed.fixAdjacentEmptyBlocks(node);
+
+    var subtle = false;
+    if (subtle)
+    {
+        if (DEBUG) console.log("Fixing adjacent empty blocks")
+        PasteCondensed.fixAdjacentEmptyBlocks(node);
+    }
+    else
+    {
+        if (DEBUG) console.log("Remove empty blocks")
+        PasteCondensed.removeEmptyBlocks(node);
+    }
 
     if (DEBUG) console.log("Done!")
 };
