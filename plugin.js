@@ -14,10 +14,15 @@ CKEDITOR.plugins.add('ck-pastecondensed', {
             // Parse the HTML string as DOM using DOMPurify
             var dom = DOMPurify.sanitize(html, { RETURN_DOM: true });
 
+            // DOMPurify.sanitize() will return the input untreated when the browser isn't supported
+            if (dom === html)
+                dom = HTML.parseFromString(html);
+
+
             PasteCondensed.condenseNode(dom);
 
             // Serialize the updated DOM as HTML, and update the event to pass it through
-            evt.data.dataValue = dom.innerHTML;
+            evt.data.dataValue = HTML.getOuterHTML(dom);
 
         }, null, null, priority);
     }
@@ -43,6 +48,93 @@ List.toArray = function (arg)
     for(; i < l; i++)
         r[i] = arg[i];
     return r;
+};
+
+/**
+ * [CC] TODO @param {(function(*, number, Array): *)|((function(*, number): *)|(function(*): *))} fn
+ *
+ * @param {Array} arr
+ * @param {!*} thisObj
+ * @param {Function} callback
+ */
+List.forEach = function (arr, thisObj, callback)
+{
+    callback = /** @type {function(*, number, Array.<*>): *} */ (callback);
+
+    var i = 0;
+
+    /** @type {*} */
+    var ctn;
+
+    // Prevent infinite loop when length is Infinity
+    var l = arr.length >>> 0;
+
+    for (; i < l && ctn !== false; i++)
+    {
+        if (i in arr)
+        {
+            ctn = callback.call(thisObj, arr[i], i, arr)
+        }
+    }
+};
+
+/**
+ * @param {Array} arg
+ * @param {?*} thisObj
+ * @param {Function} callback
+ * @return {boolean}
+ */
+List.some = function (arg, thisObj, callback)
+{
+    callback = /** @type {function(*, number, Array.<*>): *} */ (callback);
+
+    for (var i = 0, l = arg.length; i < l; i++)
+    {
+        if (callback.call(thisObj, arg[i], i, arg))
+            return true;
+    }
+    return false;
+};
+
+/**
+ * @param  {Array} arr
+ * @param  {*} obj
+ * @param  {number=} offset
+ * @return {number}
+ */
+List.indexOf = function indexOf(arr, obj, offset)
+{
+    return arr.indexOf(obj, offset);
+};
+
+if (!("indexOf" in Array.prototype))
+{
+    /**
+     * @param  {Array} arr
+     * @param  {*} obj
+     * @param  {number=} offset
+     * @return {number}
+     * @suppress {duplicate}
+     */
+    List.indexOf = function (arr, obj, offset)
+    {
+        for (var i = offset || 0, l = arr.length; i < l; i++)
+        {
+            if (arr[i] === obj)
+                return i;
+        }
+        return -1;
+    };
+}
+
+/**
+ * @param  {Array} arr
+ * @param  {*} obj
+ * @return {boolean}
+ */
+List.contains = function indexOf_contains(arr, obj)
+{
+    return List.indexOf(arr, obj) !== -1;
 };
 
 var DOM = {};
@@ -185,6 +277,23 @@ DOM.getAncestors = function (contextNode)
 };
 
 /**
+ * @param  {Node} node
+ * @return {Document}
+ */
+DOM.getDocument = function (node)
+{
+    if (node.nodeType === DOM.DOCUMENT_NODE)
+    {
+        node = /** @type {Document} */ (node);
+    }
+    else
+    {
+        node = node.ownerDocument;
+    }
+    return node;
+};
+
+/**
  * @param {Node} node
  * @return {boolean}
  */
@@ -242,6 +351,148 @@ DOM.unwrapAdjacent = function (node, direction)
     return false;
 
 };
+
+var Character = {};
+
+/**
+ * @param {string} str
+ * @return {string}
+ */
+Character.toLowerCase = function toLowerCase(str)
+{
+    return str.toLowerCase();
+};
+
+var HTML = {};
+
+/** @const {boolean} */
+HTML.SUPPORT_DOM = true;
+
+HTML.defaultDocument = document;
+
+/**
+ * @const
+ * @type {boolean}
+ */
+HTML.FEATURE_IMPLEMENTATION = HTML.SUPPORT_DOM && ("implementation" in HTML.defaultDocument);
+
+/**
+ * @const
+ * @type {boolean}
+ */
+HTML.FEATURE_CREATEDOCUMENT = HTML.FEATURE_IMPLEMENTATION && "createHTMLDocument" in HTML.defaultDocument.implementation;
+    
+/**
+ * @const
+ * @type {boolean}
+ */
+HTML.SUPPORT_ACTIVEX = HTML.SUPPORT_DOM && typeof ActiveXObject === "function";
+
+/**
+ * @param {(Element|Attr)} node
+ * @return {string}
+ */
+HTML.getLocalName = function (node)
+{
+    var nodeType = node.nodeType,
+        nodeName;
+    if (nodeType === DOM.ELEMENT_NODE)
+        nodeName = Character.toLowerCase(node.nodeName);
+    else if (nodeType === DOM.ATTRIBUTE_NODE)
+        nodeName = node.nodeName;
+    else
+        nodeName = null;
+    return nodeName;
+};
+
+/**
+ * innerHTML but better
+ * 
+ * @param {Node} node
+ * @return {string}
+ */
+HTML.getInnerHTML = function (node)
+{
+    var nodeType = node.nodeType;
+
+    if (typeof node.innerHTML === "string")
+        return node.innerHTML;
+
+    if (nodeType === DOM.ELEMENT_NODE || nodeType === DOM.DOCUMENT_NODE || nodeType === DOM.DOCUMENT_FRAGMENT_NODE)
+    {
+        var buffer = [];
+        for (var i = 0, l = node.childNodes.length; i < l; i++)
+        {
+            buffer.push(HTML.getOuterHTML(node.childNodes[i]));
+        }
+        return buffer.join("");
+    }
+    
+    return "";
+};
+
+/**
+ * outerHTML but better
+ * 
+ * @see https://bugzilla.mozilla.org/show_bug.cgi?id=92264
+ * 
+ * @param {Node} node
+ * @return {string}
+ */
+HTML.getOuterHTML = function (node)
+{
+    var nodeType = node.nodeType;
+
+    if (typeof node.outerHTML === "string")
+        return node.outerHTML;
+
+    if (nodeType === DOM.ELEMENT_NODE)
+    {
+        var div = DOM.getDocument(node).createElement("div");
+        div.appendChild(HTML.cloneNode(node, true));
+        return div.innerHTML;
+    }
+    else if (nodeType === DOM.DOCUMENT_NODE || nodeType === DOM.DOCUMENT_FRAGMENT_NODE)
+    {
+        return HTML.getInnerHTML(node);
+    }
+    else if (nodeType === DOM.COMMENT_NODE)
+    {
+        return "<!--" + node.nodeValue + "-->";
+    }
+    
+    return "";
+};
+
+/**
+ * @param {string} html
+ * @return {Document}
+ */
+HTML.parseFromString = function (html)
+{
+    // TODO: This isn't supported in all browsers, detect this
+    var doc = HTML.defaultDocument.implementation.createHTMLDocument('');
+    doc.body.outerHTML = html;
+    return doc;
+};
+
+/**
+ * @param {string} html
+ * @return {Document}
+ */
+HTML.parseFromString_ActiveX = function (html)
+{
+    var doc = new ActiveXObject("htmlfile");
+    doc.open();
+    doc.write(html);
+    doc.close();
+    return doc;
+};
+
+if (!HTML.FEATURE_CREATEDOCUMENT && HTML.SUPPORT_ACTIVEX)
+{
+    HTML.parseFromString = HTML.parseFromString_ActiveX;
+}
 
 var XML = {};
 
@@ -451,7 +702,7 @@ PasteCondensed.isPreformatted = function (node)
     if (nodeType === DOM.ELEMENT_NODE)
     {
         var namespaceURI = XML.XMLNS_XHTML, // HACK
-            localName = node.localName;
+            localName = HTML.getLocalName(node);
 
         if (namespaceURI === XML.XMLNS_XHTML)
         {
@@ -478,7 +729,7 @@ PasteCondensed.isPreformatted = function (node)
  */
 PasteCondensed.isPreformattedCharacterData = function (node)
 {
-    return DOM.getAncestors(node).some(PasteCondensed.isPreformatted);
+    return List.some(DOM.getAncestors(node), null, PasteCondensed.isPreformatted);
 };
 
 PasteCondensed.isWhitespaceElement = function (namespaceURI, name)
@@ -500,7 +751,7 @@ PasteCondensed.isParagraphSplitter = function (namespaceURI, name)
 {
     if (namespaceURI === XML.XMLNS_XHTML)
     {
-        if (["br", "hr"].indexOf(name) !== -1)
+        if (List.contains(["br", "hr"], name))
             return true;
     }
 
@@ -519,7 +770,7 @@ PasteCondensed.isNonPhrasingContent = function (namespaceURI, name)
     if (namespaceURI === XML.XMLNS_XHTML)
     {
         // <p>hello <comment>test</comment>world!</p>
-        if (["comment"].indexOf(name) !== -1)
+        if (List.contains("comment", name))
             return true;
     }
 
@@ -549,7 +800,7 @@ PasteCondensed.isBlockContainer = function (namespaceURI, localName)
             'div'
         ];
 
-        return x.indexOf(localName) !== -1;
+        return List.contains(x, localName);
     }
 };
 
@@ -591,14 +842,15 @@ PasteCondensed.isInlineContainer = function (namespaceURI, localName)
             'mark',
             'bdi',
             'bdo',
-            'span'
+            'span',
+            'font'
 
             // The following inline HTML elements are not containers:
             // 'wbr',
             // 'br',
         ]
 
-        match = x.indexOf(localName) !== -1;
+        match = List.contains(x, localName);
     }
 
     return match;
@@ -606,7 +858,7 @@ PasteCondensed.isInlineContainer = function (namespaceURI, localName)
 
 PasteCondensed.isInlineContainerElement = function (node)
 {
-    return node.nodeType === DOM.ELEMENT_NODE && PasteCondensed.isInlineContainer(XML.XMLNS_XHTML, node.localName);
+    return node.nodeType === DOM.ELEMENT_NODE && PasteCondensed.isInlineContainer(XML.XMLNS_XHTML, HTML.getLocalName(node));
 };
 
 PasteCondensed.isPhraseContainer = function (node)
@@ -614,7 +866,7 @@ PasteCondensed.isPhraseContainer = function (node)
     if (node.nodeType === DOM.ELEMENT_NODE)
     {
         var namespaceURI = XML.XMLNS_XHTML, // HACK
-            localName = node.localName;
+            localName = HTML.getLocalName(node);
 
         return PasteCondensed.isInlineContainer(namespaceURI, localName) || PasteCondensed.isBlockPhraseContainer(namespaceURI, localName);
     }
@@ -626,7 +878,7 @@ PasteCondensed.isContentRequiringBlockElement = function (node)
     if (node.nodeType === DOM.ELEMENT_NODE)
     {
         var namespaceURI = XML.XMLNS_XHTML, // HACK
-            localName = node.localName;
+            localName = HTML.getLocalName(node);
 
         return localName === "li" ||
                localName === "dt" ||
@@ -703,7 +955,7 @@ PasteCondensed.atBoundaryOfPhrasing = function atBoundaryOfPhrasing(node, forwar
         if (DOM.isText(near) && PasteCondensed.isEmptyString(near.nodeValue))
             continue;
 
-        if (PasteCondensed.isBlockPhraseContainer(near.namespaceURI, near.localName))
+        if (PasteCondensed.isBlockPhraseContainer(near.namespaceURI, HTML.getLocalName(near)))
             break;
 
         atBoundary = false;
@@ -780,7 +1032,7 @@ PasteCondensed.normalizeInlineWhitespace = function normalizeInlineWhitespace(no
 {
     var textNodes = XML.getDescendantsOrSelf(node, DOM.isText);
 
-    textNodes.forEach(function (node) {
+    List.forEach(textNodes, null, function (node) {
 
         if (PasteCondensed.isPreformattedCharacterData(node))
             return;
@@ -801,7 +1053,7 @@ PasteCondensed.fixInlineWhitespace = function fixInlineWhitespace(node)
 {
     var textNodes = XML.getDescendants(node, DOM.isText);
 
-    textNodes.forEach(function (node) {
+    List.forEach(textNodes, null, function (node) {
         if (PasteCondensed.isEmptyString(node.nodeValue))
         {
             if (DEBUG) console.log("Empty text: ",node, PasteCondensed.isPreformattedCharacterData(node))
@@ -859,7 +1111,7 @@ PasteCondensed.fixEmptyPhraseContainers = function fixEmptyPhraseContainers(node
 {
     var elements = XML.getElements(node);
 
-    elements.forEach(function (node) {
+    List.forEach(elements, null, function (node) {
     
         if (!XML.hasChildNodes(node))
             if (DEBUG) console.log("Empty node:", node);
@@ -887,7 +1139,7 @@ PasteCondensed.splitWhitespace = function splitWhitespace(node)
 {
     var textNodes = XML.getDescendantsOrSelf(node, DOM.isText);
 
-    textNodes.forEach(function (node) {
+    List.forEach(textNodes, null, function (node) {
 
         if (PasteCondensed.isPreformattedCharacterData(node))
             return;
@@ -926,7 +1178,7 @@ PasteCondensed.splitWhitespace = function splitWhitespace(node)
 
 PasteCondensed.isEmptyBlock = function isEmptyBlock(node)
 {
-    var isEmptyBlock = PasteCondensed.isBlockPhraseContainer(node.namespaceURI, node.localName);
+    var isEmptyBlock = PasteCondensed.isBlockPhraseContainer(XML.XMLNS_XHTML, HTML.getLocalName(node));
 
     if (isEmptyBlock)
     {
@@ -946,7 +1198,7 @@ PasteCondensed.fixAdjacentEmptyBlocks = function fixAdjacentEmptyBlocks(node)
 {
     var els = XML.getElements(node);
 
-    els.forEach(function (el) {
+    List.forEach(els, null, function (el) {
         if (PasteCondensed.isEmptyBlock(el))
         {
             var node = el;
@@ -1000,9 +1252,9 @@ PasteCondensed.fixParagraphSplitters = function fixParagraphSplitters(node)
 {
     var elements = XML.getElements(node);
 
-    elements.forEach(function (node) {
+    List.forEach(elements, null, function (node) {
     
-        if (PasteCondensed.isParagraphSplitter(XML.XMLNS_XHTML, node.localName))
+        if (PasteCondensed.isParagraphSplitter(XML.XMLNS_XHTML, HTML.getLocalName(node)))
         {
             var atStart = PasteCondensed.atStartOfPhrasing(node),
                 atEnd = PasteCondensed.atEndOfPhrasing(node);
