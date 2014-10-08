@@ -363,6 +363,88 @@ Character.toLowerCase = function toLowerCase(str)
     return str.toLowerCase();
 };
 
+var Escaping = {};
+
+/**
+ * Escaping of the following characters using entities: & < > "
+ * Also replace non-character ranges with the replacement character (U+FFFD)
+ * 
+ * @param {string} xml
+ * @param {boolean=} attr When false, double quotes will not be escaped
+ * @return {string}
+ */
+Escaping.escapeXML = function escapeXML(xml, attr)
+{
+    // @see http://www.w3.org/TR/REC-xml/#charsets
+    // Escape the Unicode 'non-characters'
+    // Escape characters below 0xC0 except tab and the newlines
+    // Escape < to prevent starting an element
+    // Escape > to prevent ending a CDATA section
+    // Escape " to prevent ending an attribute
+    // Escape & to prevent starting an entity reference
+    // Don't escape surrogate blocks, because they are essential for Unicode support in JavaScript
+    return xml.replace(/[\0-\t\u000B\u000C\u000E-\u00C0"&<>\uFFFE\uFFFF]/g, function(m) {
+        var charCode = m.charCodeAt(0);
+
+        if (charCode === 34 )//&& attr !== false)
+            // One byte shorter than than &quot;
+            m = "&#34;";
+
+        else if (charCode === 38) // &
+            m = "&amp;";
+
+        // In a text node the > needn't be escaped,
+        // but in CDATA sections it must be.
+        else if (charCode === 62) // <
+            m = "&gt;";
+
+        else if (charCode === 60)
+            m = "&lt;";
+        
+        else if (charCode < 32 || charCode === 0xFFFE || charCode === 0xFFFF)
+            m = "\uFFFD";
+
+        return m;
+    });
+};
+
+/**
+ * Escape consecutive dashes using a space
+ * @private
+ * @param {string} x
+ * @return {string}
+ */
+Escaping.__escapeDash = function (x)
+{
+    return x.split("").join(" ");
+};
+
+/**
+ * Escape consecutive dashes using a separating space
+ * @param {string} data
+ * @return {string}
+ */
+Escaping.escapeComment = function (data)
+{
+    return data.replace(/-{2,}/g, Escaping.__escapeDash);
+};
+
+/**
+ * @param {string} data
+ * @return {string}
+ */
+Escaping.escapeCDATA = function (data)
+{
+    // @see http://www.w3.org/TR/REC-xml/#charsets
+    // Escape the Unicode 'non-characters'
+    // Escape characters below 0xC0 except tab and the newlines
+    // Don't escape surrogate blocks, because they are essential for Unicode support in JavaScript
+    // Escape ]]> because those would end the CDATA section. Instead split content into two CDATA sections
+
+    return data.replace(/[\0-\t\u000B\u000C\u000E-\u00C0\uFFFE\uFFFF]/g, "\uFFFD")
+               .replace(/]]>/g, "]]]]><![CDATA[>");
+};
+
 var HTML = {};
 
 /** @const {boolean} */
@@ -456,9 +538,17 @@ HTML.getOuterHTML = function (node)
     {
         return HTML.getInnerHTML(node);
     }
+    else if (nodeType === DOM.TEXT_NODE)
+    {
+        return Escaping.escapeXML(node.nodeValue);
+    }
     else if (nodeType === DOM.COMMENT_NODE)
     {
-        return "<!--" + node.nodeValue + "-->";
+        return "<!--" + Escaping.escapeComment(node.nodeValue) + "-->";
+    }
+    else if (nodeType === DOM.CDATA_SECTION_NODE)
+    {
+        return "<![CDATA[" + Escaping.escapeCDATA(node.nodeValue) + "]]>";
     }
     
     return "";
