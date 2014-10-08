@@ -1235,7 +1235,7 @@ PasteCondensed.removeEmptyBlocks = function removeEmptyBlocks(node)
 {
     var els = XML.getElements(node);
 
-    els.forEach(function (el) {
+    List.forEach(els, null, function (el) {
         if (PasteCondensed.isEmptyBlock(el))
         {
             DOM.removeNode(el);
